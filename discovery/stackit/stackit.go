@@ -34,12 +34,17 @@ import (
 const (
 	stackitLabelPrefix           = model.MetaLabelPrefix + "stackit_"
 	stackitLabelProject          = stackitLabelPrefix + "project"
+	stackitLabelRole               = stackitLabelPrefix + "role"
 	stackitLabelID               = stackitLabelPrefix + "id"
 	stackitLabelName             = stackitLabelPrefix + "name"
 	stackitLabelStatus           = stackitLabelPrefix + "status"
 	stackitLabelPowerStatus      = stackitLabelPrefix + "power_status"
 	stackitLabelAvailabilityZone = stackitLabelPrefix + "availability_zone"
 	stackitLabelPublicIPv4       = stackitLabelPrefix + "public_ipv4"
+	stackitLabelPostgresFlexID     = stackitLabelPrefix + "postgres_flex_id"
+	stackitLabelPostgresFlexName   = stackitLabelPrefix + "postgres_flex_name"
+	stackitLabelPostgresFlexStatus = stackitLabelPrefix + "postgres_flex_status"
+	stackitLabelPostgresFlexRegion = stackitLabelPrefix + "postgres_flex_region"
 )
 
 var userAgent = version.PrometheusUserAgent()
@@ -94,6 +99,30 @@ type refresher interface {
 	refresh(context.Context) ([]*targetgroup.Group, error)
 }
 
+// Role is the Role of the target within the STACKIT Ecosystem.
+type Role string
+
+// The valid options for role.
+const (
+	RoleServer       Role = "server" // STACKIT IAAS API (Server)
+	RolePostgresFlex Role = "postgres_flex"
+)
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *Role) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	if err := unmarshal((*string)(c)); err != nil {
+		return err
+	}
+	switch *c {
+	case RoleServer:
+		return nil
+	case RolePostgresFlex:
+		return nil
+	default:
+		return fmt.Errorf("unknown role %q", *c)
+	}
+}
+
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
 func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*c = DefaultSDConfig
@@ -105,6 +134,10 @@ func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	if c.Endpoint == "" && c.Region == "" {
 		return errors.New("stackit_sd: endpoint and region missing")
+	}
+
+	if c.Role == "" {
+		return errors.New("role missing (one of: server, postgres_flex)")
 	}
 
 	if _, err = url.Parse(c.Endpoint); err != nil {
@@ -149,5 +182,13 @@ func NewDiscovery(conf *SDConfig, logger *slog.Logger, metrics discovery.Discove
 }
 
 func newRefresher(conf *SDConfig, l *slog.Logger) (refresher, error) {
-	return newServerDiscovery(conf, l)
+	if conf.Role == RoleServer {
+		return newServerDiscovery(conf, l)
+	}
+
+	if conf.Role == RolePostgresFlex {
+		return newPostgresFlexDiscovery(conf, l)
+	}
+
+	return nil, errors.New("unknown STACKIT discovery role")
 }
