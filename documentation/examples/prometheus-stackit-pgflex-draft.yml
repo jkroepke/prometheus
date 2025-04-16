@@ -1,0 +1,28 @@
+# A example scrape configuration for running Prometheus with
+# STACKIT.
+
+scrape_configs:
+  # Make Prometheus scrape itself for metrics.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Discover PostgresFlex
+  - job_name: "postgres_flex"
+    stackit_sd_configs:
+      - project: 673704cf-5af4-4e7a-a961-5eb6d6384c2e
+        role: "postgres_flex"
+        authorization:
+          credentials: "eyJraWQiOiJaRGc..."
+
+    authorization:
+      type: Bearer
+      credentials: "eyJraWQiOiJaRGc..."
+
+  # Discover IaaS Instance
+  - job_name: "node"
+    stackit_sd_configs:
+      - project: 673704cf-5af4-4e7a-a961-5eb6d6384c2e
+        role: "server"
+        authorization:
+          credentials: "eyJraWQiOiJaRGc..."
