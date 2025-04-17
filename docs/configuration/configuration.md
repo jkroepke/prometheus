@@ -2252,6 +2252,17 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_stackit_server_status`: The current status of the server.
 * `__meta_stackit_server_power_status`: The power status of the server.
 
+#### `postgres_flex`
+
+The `postgres_flex` role discovers scrape targets per [PostgresFlex API](https://docs.api.eu01.stackit.cloud/documentation/postgres-flex-service/version/v2#tag/instance).
+
+The following meta labels are available on targets during [relabeling](#relabel_config):
+
+* `__meta_stackit_postgres_flex_id`: Instance's unique identifier.
+* `__meta_stackit_postgres_flex_name`: Human-readable instance name.
+* `__meta_stackit_postgres_flex_region`: Deployment region of the PostgresFlex instance.
+* `__meta_stackit_postgres_flex_status`: Current operational status of the instance.
+
 See below for the configuration options for STACKIT discovery:
 
 ```yaml
@@ -2259,7 +2270,7 @@ See below for the configuration options for STACKIT discovery:
 project: <string>
 
 # The STACKIT role of entities that should be discovered.
-# Currently, only server is supported.
+# postgres_flex and server are supported.
 role: <string>
 
 # STACKIT region to use. No automatic discovery of the region is done.

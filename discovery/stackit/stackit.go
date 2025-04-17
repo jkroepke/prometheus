@@ -17,8 +17,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/stackitcloud/stackit-sdk-go/core/auth"
+	stackitconfig "github.com/stackitcloud/stackit-sdk-go/core/config"
 	"log/slog"
+	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,19 +36,9 @@ import (
 )
 
 const (
-	stackitLabelPrefix             = model.MetaLabelPrefix + "stackit_"
-	stackitLabelRole               = stackitLabelPrefix + "role"
-	stackitLabelProject            = stackitLabelPrefix + "project"
-	stackitLabelServerID           = stackitLabelPrefix + "server_id"
-	stackitLabelServerName         = stackitLabelPrefix + "server_name"
-	stackitLabelServerStatus       = stackitLabelPrefix + "server_status"
-	stackitLabelServerPowerStatus  = stackitLabelPrefix + "server_power_status"
-	stackitLabelAvailabilityZone   = stackitLabelPrefix + "availability_zone"
-	stackitLabelPublicIPv4         = stackitLabelPrefix + "public_ipv4"
-	stackitLabelPostgresFlexID     = stackitLabelPrefix + "postgres_flex_id"
-	stackitLabelPostgresFlexName   = stackitLabelPrefix + "postgres_flex_name"
-	stackitLabelPostgresFlexStatus = stackitLabelPrefix + "postgres_flex_status"
-	stackitLabelPostgresFlexRegion = stackitLabelPrefix + "postgres_flex_region"
+	stackitLabelPrefix  = model.MetaLabelPrefix + "stackit_"
+	stackitLabelRole    = stackitLabelPrefix + "role"
+	stackitLabelProject = stackitLabelPrefix + "project"
 )
 
 var userAgent = version.PrometheusUserAgent()
@@ -79,6 +73,12 @@ type SDConfig struct {
 
 	// For testing only
 	tokenURL string
+}
+
+// discoveryBase holds shared fields used by different service discovery implementations.
+type discoveryBase struct {
+	httpClient  *http.Client
+	apiEndpoint string
 }
 
 // NewDiscovererMetrics implements discovery.Config.
@@ -183,13 +183,67 @@ func NewDiscovery(conf *SDConfig, logger *slog.Logger, metrics discovery.Discove
 }
 
 func newRefresher(conf *SDConfig, l *slog.Logger) (refresher, error) {
-	if conf.Role == RoleServer {
+	switch conf.Role {
+	case RoleServer:
 		return newServerDiscovery(conf, l)
-	}
-
-	if conf.Role == RolePostgresFlex {
+	case RolePostgresFlex:
 		return newPostgresFlexDiscovery(conf, l)
 	}
-
 	return nil, errors.New("unknown STACKIT discovery role")
+}
+
+// setupDiscoveryBase initializes the common components used by service discovery types.
+// It returns a shared discoveryBase struct with the configured HTTP client and API endpoint.
+func setupDiscoveryBase(conf *SDConfig, serverDescription string, defaultEndpointFunc func(*SDConfig) string) (*discoveryBase, error) {
+	rt, err := config.NewRoundTripperFromConfig(conf.HTTPClientConfig, "stackit_sd")
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := conf.Endpoint
+	if endpoint == "" {
+		endpoint = defaultEndpointFunc(conf)
+	}
+
+	noAuth := conf.ServiceAccountKey == "" && conf.ServiceAccountKeyPath == ""
+
+	servers := stackitconfig.ServerConfigurations{
+		{
+			URL:         endpoint,
+			Description: serverDescription,
+		},
+	}
+
+	httpClient := &http.Client{
+		Timeout:   time.Duration(conf.RefreshInterval),
+		Transport: rt,
+	}
+
+	stackitConfiguration := &stackitconfig.Configuration{
+		UserAgent:             userAgent,
+		HTTPClient:            httpClient,
+		Servers:               servers,
+		NoAuth:                noAuth,
+		ServiceAccountKey:     conf.ServiceAccountKey,
+		PrivateKey:            conf.PrivateKey,
+		ServiceAccountKeyPath: conf.ServiceAccountKeyPath,
+		PrivateKeyPath:        conf.PrivateKeyPath,
+		CredentialsFilePath:   conf.CredentialsFilePath,
+	}
+
+	if conf.tokenURL != "" {
+		stackitConfiguration.TokenCustomUrl = conf.tokenURL
+	}
+
+	authRoundTripper, err := auth.SetupAuth(stackitConfiguration)
+	if err != nil {
+		return nil, fmt.Errorf("setting up authentication: %w", err)
+	}
+
+	httpClient.Transport = authRoundTripper
+
+	return &discoveryBase{
+		httpClient:  httpClient,
+		apiEndpoint: strings.TrimSuffix(stackitConfiguration.Servers[0].URL, "/"),
+	}, nil
 }

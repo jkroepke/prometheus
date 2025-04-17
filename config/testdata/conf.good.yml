@@ -422,6 +422,11 @@ scrape_configs:
       - project: 11111111-1111-1111-1111-111111111111
         role: server
 
+  - job_name: stackit-postgres-flex
+    stackit_sd_configs:
+      - project: 11111111-1111-1111-1111-111111111111
+        role: postgres_flex
+
   - job_name: uyuni
     uyuni_sd_configs:
       - server: https://localhost:1234

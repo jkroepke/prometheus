@@ -17,24 +17,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"strings"
-	"time"
-
-	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/discovery/refresh"
 	"github.com/prometheus/prometheus/discovery/targetgroup"
-	"github.com/stackitcloud/stackit-sdk-go/core/auth"
-	stackitconfig "github.com/stackitcloud/stackit-sdk-go/core/config"
+	"io"
+	"log/slog"
+	"net/http"
 )
 
 const (
 	stackitPostgresAPIEndpoint         = "https://postgres-flex-service.api.stackit.cloud"
 	stackitPostgresPrometheusProxyHost = "postgres-prom-proxy.api.stackit.cloud"
 	stackitPostgresRunningState        = "Ready"
+	stackitLabelPostgresFlexID         = stackitLabelPrefix + "postgres_flex_id"
+	stackitLabelPostgresFlexName       = stackitLabelPrefix + "postgres_flex_name"
+	stackitLabelPostgresFlexStatus     = stackitLabelPrefix + "postgres_flex_status"
+	stackitLabelPostgresFlexRegion     = stackitLabelPrefix + "postgres_flex_region"
 )
 
 type postgresFlexDiscovery struct {
@@ -46,67 +44,27 @@ type postgresFlexDiscovery struct {
 	region      string
 }
 
+// newPostgresFlexDiscovery creates a new Postgres Flex service discovery instance.
+// It sets up the HTTP client, authentication, and endpoint configuration using shared logic.
 func newPostgresFlexDiscovery(conf *SDConfig, logger *slog.Logger) (*postgresFlexDiscovery, error) {
-	p := &postgresFlexDiscovery{
-		project:     conf.Project,
-		region:      conf.Region,
-		apiEndpoint: conf.Endpoint,
-		logger:      logger,
-	}
-
-	rt, err := config.NewRoundTripperFromConfig(conf.HTTPClientConfig, "stackit_sd")
+	base, err := setupDiscoveryBase(
+		conf,
+		"STACKIT PostgresFlex API",
+		func(_ *SDConfig) string {
+			return stackitPostgresAPIEndpoint
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	endpoint := conf.Endpoint
-	if endpoint == "" {
-		endpoint = stackitPostgresAPIEndpoint
-	}
-
-	servers := stackitconfig.ServerConfigurations{}
-	noAuth := true
-	servers = append(servers, stackitconfig.ServerConfiguration{
-		URL:         endpoint,
-		Description: "STACKIT PostgresFlex API",
-	})
-
-	// If service account key and private key are set, use SDK authentication.
-	if conf.ServiceAccountKey != "" || conf.ServiceAccountKeyPath != "" {
-		noAuth = false
-	}
-
-	p.httpClient = &http.Client{
-		Timeout:   time.Duration(conf.RefreshInterval),
-		Transport: rt,
-	}
-
-	stackitConfiguration := &stackitconfig.Configuration{
-		UserAgent:  userAgent,
-		HTTPClient: p.httpClient,
-		Servers:    servers,
-		NoAuth:     noAuth,
-
-		ServiceAccountKey:     conf.ServiceAccountKey,
-		PrivateKey:            conf.PrivateKey,
-		ServiceAccountKeyPath: conf.ServiceAccountKeyPath,
-		PrivateKeyPath:        conf.PrivateKeyPath,
-		CredentialsFilePath:   conf.CredentialsFilePath,
-	}
-
-	if conf.tokenURL != "" {
-		stackitConfiguration.TokenCustomUrl = conf.tokenURL
-	}
-
-	authRoundTripper, err := auth.SetupAuth(stackitConfiguration)
-	if err != nil {
-		return nil, fmt.Errorf("setting up authentication: %w", err)
-	}
-
-	p.httpClient.Transport = authRoundTripper
-	p.apiEndpoint = strings.TrimSuffix(stackitConfiguration.Servers[0].URL, "/")
-
-	return p, nil
+	return &postgresFlexDiscovery{
+		project:     conf.Project,
+		region:      conf.Region,
+		apiEndpoint: base.apiEndpoint,
+		httpClient:  base.httpClient,
+		logger:      logger,
+	}, nil
 }
 
 func (p *postgresFlexDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, error) {
