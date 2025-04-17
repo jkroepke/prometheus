@@ -1482,6 +1482,42 @@ var expectedConf = &Config{
 			},
 		},
 		{
+			JobName:                        "stackit-postgres-flex",
+			HonorTimestamps:                true,
+			ScrapeInterval:                 model.Duration(15 * time.Second),
+			ScrapeTimeout:                  DefaultGlobalConfig.ScrapeTimeout,
+			EnableCompression:              true,
+			BodySizeLimit:                  globBodySizeLimit,
+			SampleLimit:                    globSampleLimit,
+			TargetLimit:                    globTargetLimit,
+			LabelLimit:                     globLabelLimit,
+			LabelNameLengthLimit:           globLabelNameLengthLimit,
+			LabelValueLengthLimit:          globLabelValueLengthLimit,
+			ScrapeProtocols:                DefaultGlobalConfig.ScrapeProtocols,
+			ScrapeFailureLogFile:           globScrapeFailureLogFile,
+			MetricNameValidationScheme:     UTF8ValidationConfig,
+			MetricNameEscapingScheme:       model.AllowUTF8,
+			ConvertClassicHistogramsToNHCB: boolPtr(false),
+
+			MetricsPath:      DefaultScrapeConfig.MetricsPath,
+			Scheme:           DefaultScrapeConfig.Scheme,
+			HTTPClientConfig: config.DefaultHTTPClientConfig,
+
+			ServiceDiscoveryConfigs: discovery.Configs{
+				&stackit.SDConfig{
+					Project: "11111111-1111-1111-1111-111111111111",
+					Region:  "eu01",
+					HTTPClientConfig: config.HTTPClientConfig{
+						FollowRedirects: true,
+						EnableHTTP2:     true,
+					},
+					Port:            80,
+					RefreshInterval: model.Duration(60 * time.Second),
+					Role:            "postgres_flex",
+				},
+			},
+		},
+		{
 			JobName: "uyuni",
 
 			HonorTimestamps:                true,

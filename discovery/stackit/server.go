@@ -17,32 +17,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/discovery/refresh"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
+	"github.com/prometheus/prometheus/util/strutil"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
-	"time"
-
-	"github.com/prometheus/common/config"
-	"github.com/prometheus/common/model"
-	"github.com/stackitcloud/stackit-sdk-go/core/auth"
-	stackitconfig "github.com/stackitcloud/stackit-sdk-go/core/config"
-
-	"github.com/prometheus/prometheus/discovery/refresh"
-	"github.com/prometheus/prometheus/discovery/targetgroup"
-	"github.com/prometheus/prometheus/util/strutil"
 )
 
 const (
-	stackitAPIEndpoint = "https://iaas.api.%s.stackit.cloud"
+	stackitIaasAPIEndpoint = "https://iaas.api.%s.stackit.cloud"
 
-	stackitLabelPrivateIPv4  = stackitLabelPrefix + "private_ipv4_"
-	stackitLabelPrivateIPv6  = stackitLabelPrefix + "private_ipv6_"
-	stackitLabelType         = stackitLabelPrefix + "server_type"
-	stackitLabelLabel        = stackitLabelPrefix + "label_"
-	stackitLabelLabelPresent = stackitLabelPrefix + "labelpresent_"
+	stackitLabelServerID          = stackitLabelPrefix + "server_id"
+	stackitLabelServerName        = stackitLabelPrefix + "server_name"
+	stackitLabelServerStatus      = stackitLabelPrefix + "server_status"
+	stackitLabelServerPowerStatus = stackitLabelPrefix + "server_power_status"
+	stackitLabelAvailabilityZone  = stackitLabelPrefix + "availability_zone"
+	stackitLabelPublicIPv4        = stackitLabelPrefix + "public_ipv4"
+	stackitLabelPrivateIPv4       = stackitLabelPrefix + "private_ipv4_"
+	stackitLabelPrivateIPv6       = stackitLabelPrefix + "private_ipv6_"
+	stackitLabelType              = stackitLabelPrefix + "server_type"
+	stackitLabelLabel             = stackitLabelPrefix + "label_"
+	stackitLabelLabelPresent      = stackitLabelPrefix + "labelpresent_"
 )
 
 // Discovery periodically performs STACKIT Cloud requests.
@@ -56,68 +55,27 @@ type iaasDiscovery struct {
 	port        int
 }
 
-// newServerDiscovery returns a new iaasDiscovery, which periodically refreshes its targets.
+// newServerDiscovery creates a new IAAS service discovery instance.
+// It sets up the HTTP client, authentication, and endpoint configuration using shared logic.
 func newServerDiscovery(conf *SDConfig, logger *slog.Logger) (*iaasDiscovery, error) {
-	d := &iaasDiscovery{
-		project:     conf.Project,
-		port:        conf.Port,
-		apiEndpoint: conf.Endpoint,
-		logger:      logger,
-	}
-
-	rt, err := config.NewRoundTripperFromConfig(conf.HTTPClientConfig, "stackit_sd")
+	base, err := setupDiscoveryBase(
+		conf,
+		"STACKIT IAAS API",
+		func(conf *SDConfig) string {
+			return fmt.Sprintf(stackitIaasAPIEndpoint, conf.Region)
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	endpoint := conf.Endpoint
-	if endpoint == "" {
-		endpoint = fmt.Sprintf(stackitAPIEndpoint, conf.Region)
-	}
-
-	servers := stackitconfig.ServerConfigurations{}
-	noAuth := true
-	servers = append(servers, stackitconfig.ServerConfiguration{
-		URL:         endpoint,
-		Description: "STACKIT IAAS API",
-	})
-
-	// If service account key and private key are set, use SDK authentication.
-	if conf.ServiceAccountKey != "" || conf.ServiceAccountKeyPath != "" {
-		noAuth = false
-	}
-
-	d.httpClient = &http.Client{
-		Timeout:   time.Duration(conf.RefreshInterval),
-		Transport: rt,
-	}
-
-	stackitConfiguration := &stackitconfig.Configuration{
-		UserAgent:  userAgent,
-		HTTPClient: d.httpClient,
-		Servers:    servers,
-		NoAuth:     noAuth,
-
-		ServiceAccountKey:     conf.ServiceAccountKey,
-		PrivateKey:            conf.PrivateKey,
-		ServiceAccountKeyPath: conf.ServiceAccountKeyPath,
-		PrivateKeyPath:        conf.PrivateKeyPath,
-		CredentialsFilePath:   conf.CredentialsFilePath,
-	}
-
-	if conf.tokenURL != "" {
-		stackitConfiguration.TokenCustomUrl = conf.tokenURL
-	}
-
-	authRoundTripper, err := auth.SetupAuth(stackitConfiguration)
-	if err != nil {
-		return nil, fmt.Errorf("setting up authentication: %w", err)
-	}
-
-	d.httpClient.Transport = authRoundTripper
-	d.apiEndpoint = strings.TrimSuffix(stackitConfiguration.Servers[0].URL, "/")
-
-	return d, nil
+	return &iaasDiscovery{
+		project:     conf.Project,
+		port:        conf.Port,
+		apiEndpoint: base.apiEndpoint,
+		httpClient:  base.httpClient,
+		logger:      logger,
+	}, nil
 }
 
 func (i *iaasDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, error) {
